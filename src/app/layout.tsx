@@ -18,9 +18,9 @@ export default function RootLayout({
   return (
     <html lang="fr" className="dark">
       <body className={`${inter.className} antialiased`}>
-        <div className="flex h-screen">
+        <div className="flex min-h-screen">
           <Sidebar />
-          <main className="flex-1 overflow-auto p-6 bg-background">
+          <main className="flex-1 overflow-auto p-4 lg:p-6 bg-background">
             {children}
           </main>
         </div>
