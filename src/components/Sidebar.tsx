@@ -43,7 +43,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navigation.map((item) => {
           const isActive = pathname === item.href
           return (
@@ -69,7 +69,11 @@ export default function Sidebar() {
         <Link
           href="/settings"
           onClick={() => setMobileMenuOpen(false)}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+            pathname === '/settings'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          }`}
         >
           <Settings className="w-5 h-5" />
           Paramètres
@@ -88,8 +92,8 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-card border-b border-border px-4 py-3 flex items-center justify-between">
+      {/* Mobile Header - Fixed with solid background */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-b border-border px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
             <Leaf className="w-5 h-5 text-primary" />
@@ -98,7 +102,7 @@ export default function Sidebar() {
         </div>
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 rounded-lg hover:bg-muted transition-colors"
+          className="p-2 rounded-lg bg-muted hover:bg-accent transition-colors"
         >
           {mobileMenuOpen ? (
             <X className="w-6 h-6 text-foreground" />
@@ -111,29 +115,29 @@ export default function Sidebar() {
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
         <div 
-          className="lg:hidden fixed inset-0 z-40 bg-black/50"
+          className="lg:hidden fixed inset-0 z-40 bg-black/60"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
-      {/* Mobile Sidebar */}
+      {/* Mobile Sidebar - Solid background */}
       <div className={`
-        lg:hidden fixed top-0 left-0 z-50 h-full w-64 bg-card border-r border-border
+        lg:hidden fixed top-0 left-0 z-50 h-full w-72 bg-card border-r border-border shadow-2xl
         transform transition-transform duration-300 ease-in-out
         ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="flex flex-col h-full pt-16">
+        <div className="flex flex-col h-full">
           <SidebarContent />
         </div>
       </div>
 
       {/* Desktop Sidebar */}
-      <div className="hidden lg:flex flex-col w-64 bg-card border-r border-border">
+      <div className="hidden lg:flex flex-col w-64 bg-card border-r border-border flex-shrink-0">
         <SidebarContent />
       </div>
 
-      {/* Mobile spacer */}
-      <div className="lg:hidden h-14" />
+      {/* Mobile spacer for fixed header */}
+      <div className="lg:hidden h-16 flex-shrink-0" />
     </>
   )
 }
