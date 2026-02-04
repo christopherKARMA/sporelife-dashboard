@@ -16,11 +16,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="dark">
-      <body className={`${inter.className} antialiased bg-[#0a0a0a] text-white`}>
+    <html lang="fr">
+      <body className={`${inter.className} antialiased`} style={{ backgroundColor: '#0a0a0a', color: '#ffffff' }}>
         <div className="flex flex-col lg:flex-row min-h-screen">
           <Sidebar />
-          <main className="flex-1 overflow-auto p-4 lg:p-6">
+          <main className="flex-1 overflow-auto p-4 lg:p-6 pt-20 lg:pt-6">
             {children}
           </main>
         </div>
