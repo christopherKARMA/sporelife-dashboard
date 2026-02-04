@@ -13,13 +13,15 @@ import {
   Tv,
   Leaf,
   Menu,
-  X
+  X,
+  Users
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Vidéos', href: '/videos', icon: Video },
   { name: 'Plan d\'action', href: '/tasks', icon: CheckSquare },
+  { name: 'Influenceurs', href: '/influencers', icon: Users },
   { name: 'Fournisseurs', href: '/suppliers', icon: Truck },
   { name: 'Stats', href: '/stats', icon: BarChart3 },
   { name: 'Mode Film', href: '/film-mode', icon: Tv },
