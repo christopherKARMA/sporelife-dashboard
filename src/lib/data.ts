@@ -16,7 +16,7 @@ export interface Task {
 }
 
 // Date de début du challenge (configurable)
-export const CHALLENGE_START_DATE = '2025-02-10' // Format YYYY-MM-DD
+export const CHALLENGE_START_DATE = '2026-02-10' // Format YYYY-MM-DD
 
 export const tasks: Task[] = [
   // ========== SEMAINE 1 : TEASING & CONCEPT (J1-7) ==========

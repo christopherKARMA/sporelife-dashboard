@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { supabase, TaskDB } from '@/lib/supabase'
 
-const CHALLENGE_START_DATE = '2025-02-10'
+const CHALLENGE_START_DATE = '2026-02-10'
 
 const getDateForDay = (day: number, startDate: string): Date => {
   const start = new Date(startDate)

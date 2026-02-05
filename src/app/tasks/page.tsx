@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { supabase, TaskDB } from '@/lib/supabase'
 
-const CHALLENGE_START_DATE = '2025-02-10'
+const CHALLENGE_START_DATE = '2026-02-10'
 
 const categoryConfig = {
   product: { label: 'Produit', emoji: '🧪', color: 'bg-purple-500/10 text-purple-400' },
