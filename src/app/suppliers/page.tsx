@@ -1,20 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Plus, 
   Mail,
   Globe,
   MapPin,
-  Check,
   X,
-  Clock,
-  MessageSquare,
   ExternalLink,
   Edit2,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react'
-import { suppliers as initialSuppliers, Supplier } from '@/lib/data'
+import { supabase, SupplierDB } from '@/lib/supabase'
 
 const statusConfig = {
   pending: { label: 'À contacter', color: 'bg-gray-500/10 text-gray-400' },
@@ -25,11 +23,13 @@ const statusConfig = {
 }
 
 export default function SuppliersPage() {
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers)
+  const [suppliers, setSuppliers] = useState<SupplierDB[]>([])
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterType, setFilterType] = useState<string>('all')
   const [showModal, setShowModal] = useState(false)
-  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
+  const [editingSupplier, setEditingSupplier] = useState<SupplierDB | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     contact_name: '',
@@ -41,13 +41,62 @@ export default function SuppliersPage() {
     notes: ''
   })
 
+  // Fetch suppliers from Supabase
+  const fetchSuppliers = async () => {
+    const { data, error } = await supabase
+      .from('suppliers')
+      .select('*')
+      .order('name', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching suppliers:', error)
+      return
+    }
+
+    setSuppliers(data || [])
+  }
+
+  // Initial load
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true)
+      await fetchSuppliers()
+      setIsLoading(false)
+    }
+    loadData()
+  }, [])
+
+  // Realtime subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel('suppliers-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, () => {
+        fetchSuppliers()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
   const filteredSuppliers = suppliers.filter(s => {
     if (filterStatus !== 'all' && s.status !== filterStatus) return false
     if (filterType !== 'all' && !s.product_type.toLowerCase().includes(filterType.toLowerCase())) return false
     return true
   })
 
-  const updateStatus = (supplierId: string, newStatus: Supplier['status']) => {
+  const updateStatus = async (supplierId: string, newStatus: SupplierDB['status']) => {
+    const { error } = await supabase
+      .from('suppliers')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', supplierId)
+
+    if (error) {
+      console.error('Error updating supplier status:', error)
+      return
+    }
+
     setSuppliers(suppliers.map(s => s.id === supplierId ? { ...s, status: newStatus } : s))
   }
 
@@ -57,7 +106,7 @@ export default function SuppliersPage() {
     setShowModal(true)
   }
 
-  const openEditModal = (supplier: Supplier) => {
+  const openEditModal = (supplier: SupplierDB) => {
     setEditingSupplier(supplier)
     setFormData({
       name: supplier.name,
@@ -72,38 +121,72 @@ export default function SuppliersPage() {
     setShowModal(true)
   }
 
-  const saveSupplier = () => {
+  const saveSupplier = async () => {
     if (!formData.name.trim()) return
+    setIsSaving(true)
+
     if (editingSupplier) {
-      setSuppliers(suppliers.map(s => s.id === editingSupplier.id ? {
-        ...s,
-        ...formData,
-        contact_name: formData.contact_name || null,
-        email: formData.email || null,
-        phone: formData.phone || null,
-        website: formData.website || null,
-        notes: formData.notes || null
-      } : s))
-    } else {
-      const newSupplier: Supplier = {
-        id: `new-${Date.now()}`,
-        ...formData,
-        contact_name: formData.contact_name || null,
-        email: formData.email || null,
-        phone: formData.phone || null,
-        website: formData.website || null,
-        notes: formData.notes || null,
-        status: 'pending'
+      const { error } = await supabase
+        .from('suppliers')
+        .update({
+          name: formData.name,
+          contact_name: formData.contact_name || null,
+          email: formData.email || null,
+          phone: formData.phone || null,
+          website: formData.website || null,
+          product_type: formData.product_type,
+          country: formData.country,
+          notes: formData.notes || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingSupplier.id)
+
+      if (error) {
+        console.error('Error updating supplier:', error)
+        setIsSaving(false)
+        return
       }
-      setSuppliers([...suppliers, newSupplier])
+    } else {
+      const { error } = await supabase
+        .from('suppliers')
+        .insert({
+          name: formData.name,
+          contact_name: formData.contact_name || null,
+          email: formData.email || null,
+          phone: formData.phone || null,
+          website: formData.website || null,
+          product_type: formData.product_type,
+          country: formData.country,
+          notes: formData.notes || null,
+          status: 'pending'
+        })
+
+      if (error) {
+        console.error('Error creating supplier:', error)
+        setIsSaving(false)
+        return
+      }
     }
+
+    await fetchSuppliers()
+    setIsSaving(false)
     setShowModal(false)
   }
 
-  const deleteSupplier = (supplierId: string) => {
-    if (confirm('Supprimer ce fournisseur ?')) {
-      setSuppliers(suppliers.filter(s => s.id !== supplierId))
+  const deleteSupplier = async (supplierId: string) => {
+    if (!confirm('Supprimer ce fournisseur ?')) return
+
+    const { error } = await supabase
+      .from('suppliers')
+      .delete()
+      .eq('id', supplierId)
+
+    if (error) {
+      console.error('Error deleting supplier:', error)
+      return
     }
+
+    setSuppliers(suppliers.filter(s => s.id !== supplierId))
   }
 
   // Grouper par type
@@ -116,7 +199,18 @@ export default function SuppliersPage() {
     if (!acc[category]) acc[category] = []
     acc[category].push(supplier)
     return acc
-  }, {} as { [key: string]: Supplier[] })
+  }, {} as { [key: string]: SupplierDB[] })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500 mx-auto mb-4"></div>
+          <p style={{ color: '#a3a3a3' }}>Chargement depuis Supabase...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -126,10 +220,20 @@ export default function SuppliersPage() {
           <h1 className="text-2xl lg:text-3xl font-bold" style={{ color: '#ffffff' }}>Fournisseurs</h1>
           <p style={{ color: '#a3a3a3' }} className="mt-1">{suppliers.length} contacts</p>
         </div>
-        <button onClick={openAddModal} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#22c55e', color: '#ffffff' }}>
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">Ajouter</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => fetchSuppliers()}
+            className="p-2 rounded-lg"
+            style={{ backgroundColor: '#262626' }}
+            title="Rafraîchir"
+          >
+            <RefreshCw className="w-5 h-5" style={{ color: '#a3a3a3' }} />
+          </button>
+          <button onClick={openAddModal} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#22c55e', color: '#ffffff' }}>
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Ajouter</span>
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -187,7 +291,7 @@ export default function SuppliersPage() {
                       <div className="flex items-center gap-2">
                         <select
                           value={supplier.status}
-                          onChange={(e) => updateStatus(supplier.id, e.target.value as Supplier['status'])}
+                          onChange={(e) => updateStatus(supplier.id, e.target.value as SupplierDB['status'])}
                           className={`px-2 py-1 text-xs rounded ${status.color}`}
                           style={{ backgroundColor: 'transparent', border: 'none' }}
                         >
@@ -239,6 +343,19 @@ export default function SuppliersPage() {
           </div>
         ))}
       </div>
+
+      {suppliers.length === 0 && (
+        <div className="text-center py-12 rounded-xl" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+          <p style={{ color: '#a3a3a3' }}>Aucun fournisseur trouvé</p>
+          <button
+            onClick={openAddModal}
+            className="mt-4 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ backgroundColor: '#22c55e', color: '#ffffff' }}
+          >
+            Ajouter le premier fournisseur
+          </button>
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (
@@ -299,8 +416,13 @@ export default function SuppliersPage() {
 
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="flex-1 px-4 py-2 rounded-lg text-sm" style={{ backgroundColor: '#262626', color: '#a3a3a3' }}>Annuler</button>
-              <button onClick={saveSupplier} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#22c55e', color: '#ffffff' }}>
-                {editingSupplier ? 'Modifier' : 'Ajouter'}
+              <button 
+                onClick={saveSupplier} 
+                disabled={isSaving}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50" 
+                style={{ backgroundColor: '#22c55e', color: '#ffffff' }}
+              >
+                {isSaving ? 'Enregistrement...' : editingSupplier ? 'Modifier' : 'Ajouter'}
               </button>
             </div>
           </div>

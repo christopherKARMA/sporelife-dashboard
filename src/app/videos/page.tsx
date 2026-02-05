@@ -7,9 +7,12 @@ import {
   ChevronUp,
   CheckCircle2,
   Circle,
-  Calendar
+  Calendar,
+  RefreshCw
 } from 'lucide-react'
-import { tasks as initialTasks, Task, CHALLENGE_START_DATE } from '@/lib/data'
+import { supabase, TaskDB } from '@/lib/supabase'
+
+const CHALLENGE_START_DATE = '2025-02-10'
 
 const getDateForDay = (day: number, startDate: string): Date => {
   const start = new Date(startDate)
@@ -40,8 +43,8 @@ const assigneeConfig = {
   both: { label: 'Tous', emoji: '👥', color: 'bg-violet-500/10 text-violet-400' },
 }
 
-const groupByWeek = (tasks: Task[]) => {
-  const weeks: { [key: number]: Task[] } = {}
+const groupByWeek = (tasks: TaskDB[]) => {
+  const weeks: { [key: number]: TaskDB[] } = {}
   tasks.forEach(task => {
     const week = Math.ceil(task.day / 7)
     if (!weeks[week]) weeks[week] = []
@@ -51,46 +54,61 @@ const groupByWeek = (tasks: Task[]) => {
 }
 
 export default function VideosPage() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks)
-  const [startDate, setStartDate] = useState<string>(CHALLENGE_START_DATE)
+  const [allTasks, setAllTasks] = useState<TaskDB[]>([])
+  const [startDate] = useState<string>(CHALLENGE_START_DATE)
   const [filter, setFilter] = useState<string>('all')
   const [expandedWeeks, setExpandedWeeks] = useState<number[]>([])
-  const [isLoaded, setIsLoaded] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
+  // Fetch tasks from Supabase
+  const fetchTasks = async () => {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .order('day', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching tasks:', error)
+      return
+    }
+
+    setAllTasks(data || [])
+  }
+
+  // Initial load
   useEffect(() => {
-    const savedTasks = localStorage.getItem('sporelife-tasks')
-    const savedStartDate = localStorage.getItem('sporelife-start-date')
-    
-    if (savedTasks) {
-      try {
-        setTasks(JSON.parse(savedTasks))
-      } catch (e) {
-        console.error('Error loading tasks:', e)
-      }
+    const loadData = async () => {
+      setIsLoading(true)
+      await fetchTasks()
+      
+      // Auto-expand current week
+      const currentDay = getCurrentDay(CHALLENGE_START_DATE)
+      const currentWeek = Math.ceil(currentDay / 7)
+      setExpandedWeeks([currentWeek, currentWeek + 1])
+      
+      setIsLoading(false)
     }
-    
-    if (savedStartDate) {
-      setStartDate(savedStartDate)
-    }
-
-    // Auto-expand current week
-    const currentDay = getCurrentDay(savedStartDate || CHALLENGE_START_DATE)
-    const currentWeek = Math.ceil(currentDay / 7)
-    setExpandedWeeks([currentWeek, currentWeek + 1])
-    
-    setIsLoaded(true)
+    loadData()
   }, [])
 
+  // Realtime subscription
   useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem('sporelife-tasks', JSON.stringify(tasks))
+    const channel = supabase
+      .channel('videos-tasks-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchTasks()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
-  }, [tasks, isLoaded])
+  }, [])
 
   const currentDay = getCurrentDay(startDate)
 
   // Filtrer seulement les tâches vidéo
-  const videoTasks = tasks.filter(t => t.isVideo)
+  const videoTasks = allTasks.filter(t => t.is_video)
   
   const filteredVideos = videoTasks.filter(task => {
     if (filter === 'todo') return task.status !== 'done'
@@ -106,26 +124,34 @@ export default function VideosPage() {
     setExpandedWeeks(expandedWeeks.includes(week) ? expandedWeeks.filter(w => w !== week) : [...expandedWeeks, week])
   }
 
-  const toggleVideoStatus = (taskId: string) => {
-    setTasks(tasks.map(task => {
-      if (task.id === taskId) {
-        const newStatus = task.status === 'done' ? 'todo' : 'done'
-        return { ...task, status: newStatus }
-      }
-      return task
-    }))
+  const toggleVideoStatus = async (taskId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'done' ? 'todo' : 'done'
+    
+    const { error } = await supabase
+      .from('tasks')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', taskId)
+
+    if (error) {
+      console.error('Error updating video status:', error)
+      return
+    }
+
+    setAllTasks(allTasks.map(task => 
+      task.id === taskId ? { ...task, status: newStatus as TaskDB['status'] } : task
+    ))
   }
 
   const doneCount = videoTasks.filter(t => t.status === 'done').length
   const todoCount = videoTasks.filter(t => t.status !== 'done').length
   const todayVideos = videoTasks.filter(t => t.day === currentDay)
 
-  if (!isLoaded) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-pink-500 mx-auto mb-4"></div>
-          <p style={{ color: '#a3a3a3' }}>Chargement...</p>
+          <p style={{ color: '#a3a3a3' }}>Chargement depuis Supabase...</p>
         </div>
       </div>
     )
@@ -142,19 +168,27 @@ export default function VideosPage() {
           </h1>
           <p style={{ color: '#a3a3a3' }} className="mt-1">{videoTasks.length} vidéos planifiées sur 60 jours</p>
         </div>
+        <button
+          onClick={() => fetchTasks()}
+          className="p-2 rounded-lg"
+          style={{ backgroundColor: '#262626' }}
+          title="Rafraîchir"
+        >
+          <RefreshCw className="w-5 h-5" style={{ color: '#a3a3a3' }} />
+        </button>
       </div>
 
       {/* Progress */}
       <div className="rounded-xl p-4" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium" style={{ color: '#ffffff' }}>Progression vidéos</span>
-          <span className="text-sm" style={{ color: '#ec4899' }}>{Math.round((doneCount / videoTasks.length) * 100)}%</span>
+          <span className="text-sm" style={{ color: '#ec4899' }}>{videoTasks.length > 0 ? Math.round((doneCount / videoTasks.length) * 100) : 0}%</span>
         </div>
         <div className="w-full h-3 rounded-full overflow-hidden" style={{ backgroundColor: '#262626' }}>
           <div 
             className="h-full rounded-full transition-all duration-500" 
             style={{ 
-              width: `${(doneCount / videoTasks.length) * 100}%`,
+              width: `${videoTasks.length > 0 ? (doneCount / videoTasks.length) * 100 : 0}%`,
               backgroundColor: '#ec4899'
             }}
           />
@@ -234,7 +268,7 @@ export default function VideosPage() {
           <div className="space-y-2">
             {todayVideos.map(video => (
               <div key={video.id} className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: '#171717' }}>
-                <button onClick={() => toggleVideoStatus(video.id)}>
+                <button onClick={() => toggleVideoStatus(video.id, video.status)}>
                   {video.status === 'done' ? (
                     <CheckCircle2 className="w-5 h-5" style={{ color: '#22c55e' }} />
                   ) : (
@@ -306,7 +340,7 @@ export default function VideosPage() {
                         style={{ borderBottom: '1px solid #262626' }}
                       >
                         <div className="flex items-start gap-3">
-                          <button onClick={() => toggleVideoStatus(video.id)} className="mt-0.5 flex-shrink-0">
+                          <button onClick={() => toggleVideoStatus(video.id, video.status)} className="mt-0.5 flex-shrink-0">
                             {video.status === 'done' ? (
                               <CheckCircle2 className="w-5 h-5" style={{ color: '#22c55e' }} />
                             ) : (
@@ -341,6 +375,16 @@ export default function VideosPage() {
           )
         })}
       </div>
+
+      {videoTasks.length === 0 && (
+        <div className="text-center py-12 rounded-xl" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+          <Video className="w-12 h-12 mx-auto mb-4" style={{ color: '#737373' }} />
+          <p style={{ color: '#a3a3a3' }}>Aucune vidéo planifiée</p>
+          <p className="text-xs mt-2" style={{ color: '#737373' }}>
+            Ajoutez des tâches avec l'option "vidéo" dans la page Tâches
+          </p>
+        </div>
+      )}
     </div>
   )
 }

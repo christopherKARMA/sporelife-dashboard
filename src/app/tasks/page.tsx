@@ -13,13 +13,15 @@ import {
   ChevronUp,
   X,
   Video,
-  User,
   Users,
   Package,
   Calendar,
-  Settings
+  Settings,
+  RefreshCw
 } from 'lucide-react'
-import { tasks as initialTasks, Task, CHALLENGE_START_DATE } from '@/lib/data'
+import { supabase, TaskDB } from '@/lib/supabase'
+
+const CHALLENGE_START_DATE = '2025-02-10'
 
 const categoryConfig = {
   product: { label: 'Produit', emoji: '🧪', color: 'bg-purple-500/10 text-purple-400' },
@@ -42,8 +44,8 @@ const assigneeConfig = {
   both: { label: 'Tous', emoji: '👥', color: 'bg-violet-500/10 text-violet-400' },
 }
 
-const groupByWeek = (tasks: Task[]) => {
-  const weeks: { [key: number]: Task[] } = {}
+const groupByWeek = (tasks: TaskDB[]) => {
+  const weeks: { [key: number]: TaskDB[] } = {}
   tasks.forEach(task => {
     const week = Math.ceil(task.day / 7)
     if (!weeks[week]) weeks[week] = []
@@ -76,73 +78,78 @@ const getCurrentDay = (startDate: string): number => {
 }
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks)
-  const [startDate, setStartDate] = useState<string>(CHALLENGE_START_DATE)
+  const [tasks, setTasks] = useState<TaskDB[]>([])
+  const [startDate] = useState<string>(CHALLENGE_START_DATE)
   const [filterType, setFilterType] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [expandedWeeks, setExpandedWeeks] = useState<number[]>([])
   const [showModal, setShowModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [editingTask, setEditingTask] = useState<Task | null>(null)
-  const [isLoaded, setIsLoaded] = useState(false)
+  const [editingTask, setEditingTask] = useState<TaskDB | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    category: 'product' as Task['category'],
-    priority: 'medium' as Task['priority'],
-    assignee: 'chris' as Task['assignee'],
-    isVideo: false,
+    category: 'product' as TaskDB['category'],
+    priority: 'medium' as TaskDB['priority'],
+    assignee: 'chris' as TaskDB['assignee'],
+    is_video: false,
     day: 1
   })
 
-  // Load from localStorage
-  useEffect(() => {
-    const savedTasks = localStorage.getItem('sporelife-tasks')
-    const savedStartDate = localStorage.getItem('sporelife-start-date')
-    
-    if (savedTasks) {
-      try {
-        setTasks(JSON.parse(savedTasks))
-      } catch (e) {
-        console.error('Error loading tasks:', e)
-      }
-    }
-    
-    if (savedStartDate) {
-      setStartDate(savedStartDate)
+  // Fetch tasks from Supabase
+  const fetchTasks = async () => {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .order('day', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching tasks:', error)
+      return
     }
 
-    // Auto-expand current week
-    const currentDay = getCurrentDay(savedStartDate || CHALLENGE_START_DATE)
-    const currentWeek = Math.ceil(currentDay / 7)
-    setExpandedWeeks([currentWeek, currentWeek + 1])
-    
-    setIsLoaded(true)
+    setTasks(data || [])
+  }
+
+  // Initial load
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true)
+      await fetchTasks()
+      
+      // Auto-expand current week
+      const currentDay = getCurrentDay(CHALLENGE_START_DATE)
+      const currentWeek = Math.ceil(currentDay / 7)
+      setExpandedWeeks([currentWeek, currentWeek + 1])
+      
+      setIsLoading(false)
+    }
+    loadData()
   }, [])
 
-  // Save to localStorage
+  // Realtime subscription
   useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem('sporelife-tasks', JSON.stringify(tasks))
-    }
-  }, [tasks, isLoaded])
+    const channel = supabase
+      .channel('tasks-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchTasks()
+      })
+      .subscribe()
 
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem('sporelife-start-date', startDate)
+    return () => {
+      supabase.removeChannel(channel)
     }
-  }, [startDate, isLoaded])
+  }, [])
 
   const currentDay = getCurrentDay(startDate)
 
   const filteredTasks = tasks.filter(task => {
-    // Filter by type
     if (filterType === 'chris' && task.assignee !== 'chris' && task.assignee !== 'both') return false
     if (filterType === 'lucas' && task.assignee !== 'lucas' && task.assignee !== 'both') return false
-    if (filterType === 'videos' && !task.isVideo) return false
+    if (filterType === 'videos' && !task.is_video) return false
     if (filterType === 'product' && task.category !== 'product') return false
-    
-    // Filter by status
     if (filterStatus !== 'all' && task.status !== filterStatus) return false
     return true
   })
@@ -150,17 +157,25 @@ export default function TasksPage() {
   const weeks = groupByWeek(filteredTasks)
   const todoCount = tasks.filter(t => t.status === 'todo').length
   const doneCount = tasks.filter(t => t.status === 'done').length
-  const videoCount = tasks.filter(t => t.isVideo).length
-  const videoDoneCount = tasks.filter(t => t.isVideo && t.status === 'done').length
+  const videoCount = tasks.filter(t => t.is_video).length
+  const videoDoneCount = tasks.filter(t => t.is_video && t.status === 'done').length
 
-  const toggleTaskStatus = (taskId: string) => {
-    setTasks(tasks.map(task => {
-      if (task.id === taskId) {
-        const newStatus = task.status === 'done' ? 'todo' : 'done'
-        return { ...task, status: newStatus }
-      }
-      return task
-    }))
+  const toggleTaskStatus = async (taskId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'done' ? 'todo' : 'done'
+    
+    const { error } = await supabase
+      .from('tasks')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', taskId)
+
+    if (error) {
+      console.error('Error updating task:', error)
+      return
+    }
+
+    setTasks(tasks.map(task => 
+      task.id === taskId ? { ...task, status: newStatus as TaskDB['status'] } : task
+    ))
   }
 
   const toggleWeek = (week: number) => {
@@ -179,13 +194,13 @@ export default function TasksPage() {
       category: 'content', 
       priority: 'medium', 
       assignee: 'chris',
-      isVideo: false,
+      is_video: false,
       day: currentDay 
     })
     setShowModal(true)
   }
 
-  const openEditModal = (task: Task) => {
+  const openEditModal = (task: TaskDB) => {
     setEditingTask(task)
     setFormData({
       title: task.title,
@@ -193,43 +208,92 @@ export default function TasksPage() {
       category: task.category,
       priority: task.priority,
       assignee: task.assignee,
-      isVideo: task.isVideo || false,
+      is_video: task.is_video || false,
       day: task.day
     })
     setShowModal(true)
   }
 
-  const saveTask = () => {
+  const saveTask = async () => {
     if (!formData.title.trim()) return
+    setIsSaving(true)
 
     if (editingTask) {
-      setTasks(tasks.map(t => t.id === editingTask.id ? {
-        ...t,
-        ...formData,
-        description: formData.description || null
-      } : t))
-    } else {
-      const newTask: Task = {
-        id: `new-${Date.now()}`,
-        ...formData,
-        description: formData.description || null,
-        status: 'todo'
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          title: formData.title,
+          description: formData.description || null,
+          category: formData.category,
+          priority: formData.priority,
+          assignee: formData.assignee,
+          is_video: formData.is_video,
+          day: formData.day,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingTask.id)
+
+      if (error) {
+        console.error('Error updating task:', error)
+        setIsSaving(false)
+        return
       }
-      setTasks([...tasks, newTask])
+    } else {
+      const { error } = await supabase
+        .from('tasks')
+        .insert({
+          title: formData.title,
+          description: formData.description || null,
+          category: formData.category,
+          priority: formData.priority,
+          assignee: formData.assignee,
+          is_video: formData.is_video,
+          day: formData.day,
+          status: 'todo'
+        })
+
+      if (error) {
+        console.error('Error creating task:', error)
+        setIsSaving(false)
+        return
+      }
     }
+
+    await fetchTasks()
+    setIsSaving(false)
     setShowModal(false)
   }
 
-  const deleteTask = (taskId: string) => {
-    if (confirm('Supprimer cette tâche ?')) {
-      setTasks(tasks.filter(t => t.id !== taskId))
+  const deleteTask = async (taskId: string) => {
+    if (!confirm('Supprimer cette tâche ?')) return
+
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', taskId)
+
+    if (error) {
+      console.error('Error deleting task:', error)
+      return
     }
+
+    setTasks(tasks.filter(t => t.id !== taskId))
   }
 
-  const resetProgress = () => {
-    if (confirm('Remettre toutes les tâches à zéro ?')) {
-      setTasks(tasks.map(t => ({ ...t, status: 'todo' as const })))
+  const resetProgress = async () => {
+    if (!confirm('Remettre toutes les tâches à zéro ?')) return
+
+    const { error } = await supabase
+      .from('tasks')
+      .update({ status: 'todo', updated_at: new Date().toISOString() })
+      .neq('status', 'placeholder')
+
+    if (error) {
+      console.error('Error resetting tasks:', error)
+      return
     }
+
+    await fetchTasks()
   }
 
   const weekLabels: { [key: number]: string } = {
@@ -244,12 +308,12 @@ export default function TasksPage() {
     9: 'Bilan & Suite'
   }
 
-  if (!isLoaded) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500 mx-auto mb-4"></div>
-          <p style={{ color: '#a3a3a3' }}>Chargement...</p>
+          <p style={{ color: '#a3a3a3' }}>Chargement depuis Supabase...</p>
         </div>
       </div>
     )
@@ -268,6 +332,14 @@ export default function TasksPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => fetchTasks()}
+            className="p-2 rounded-lg"
+            style={{ backgroundColor: '#262626' }}
+            title="Rafraîchir"
+          >
+            <RefreshCw className="w-5 h-5" style={{ color: '#a3a3a3' }} />
+          </button>
           <button
             onClick={() => setShowSettings(true)}
             className="p-2 rounded-lg"
@@ -290,13 +362,13 @@ export default function TasksPage() {
       <div className="rounded-xl p-4" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium" style={{ color: '#ffffff' }}>Progression globale</span>
-          <span className="text-sm" style={{ color: '#22c55e' }}>{Math.round((doneCount / tasks.length) * 100)}%</span>
+          <span className="text-sm" style={{ color: '#22c55e' }}>{tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0}%</span>
         </div>
         <div className="w-full h-3 rounded-full overflow-hidden" style={{ backgroundColor: '#262626' }}>
           <div 
             className="h-full rounded-full transition-all duration-500" 
             style={{ 
-              width: `${(doneCount / tasks.length) * 100}%`,
+              width: `${tasks.length > 0 ? (doneCount / tasks.length) * 100 : 0}%`,
               backgroundColor: '#22c55e'
             }}
           />
@@ -396,7 +468,7 @@ export default function TasksPage() {
           const week = Number(weekNum)
           const isExpanded = expandedWeeks.includes(week)
           const weekDone = weekTasks.filter(t => t.status === 'done').length
-          const weekVideos = weekTasks.filter(t => t.isVideo).length
+          const weekVideos = weekTasks.filter(t => t.is_video).length
           const startDay = (week - 1) * 7 + 1
           const endDay = Math.min(week * 7, 60)
           const isCurrentWeek = currentDay >= startDay && currentDay <= endDay
@@ -453,7 +525,7 @@ export default function TasksPage() {
                         style={{ borderBottom: '1px solid #262626' }}
                       >
                         <div className="flex items-start gap-3">
-                          <button onClick={() => toggleTaskStatus(task.id)} className="mt-0.5 flex-shrink-0">
+                          <button onClick={() => toggleTaskStatus(task.id, task.status)} className="mt-0.5 flex-shrink-0">
                             {task.status === 'done' ? (
                               <CheckCircle2 className="w-5 h-5" style={{ color: '#22c55e' }} />
                             ) : (
@@ -466,13 +538,13 @@ export default function TasksPage() {
                               <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${isToday ? 'bg-green-500/20 text-green-400' : ''}`} style={{ color: isToday ? undefined : '#737373' }}>
                                 J{task.day} • {taskDate}
                               </span>
-                              {task.isVideo && (
+                              {task.is_video && (
                                 <span className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1" style={{ backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#ec4899' }}>
                                   <Video className="w-3 h-3" />
                                 </span>
                               )}
-                              <span className={`px-1.5 py-0.5 rounded text-xs ${category.color}`}>{category.emoji}</span>
-                              <span className={`px-1.5 py-0.5 rounded text-xs ${assignee.color}`}>{assignee.emoji}</span>
+                              {category && <span className={`px-1.5 py-0.5 rounded text-xs ${category.color}`}>{category.emoji}</span>}
+                              {assignee && <span className={`px-1.5 py-0.5 rounded text-xs ${assignee.color}`}>{assignee.emoji}</span>}
                               <PriorityIcon className={`w-3 h-3 ${priority.color}`} />
                             </div>
                             <h3 className={`font-medium text-sm ${task.status === 'done' ? 'line-through' : ''}`} style={{ color: '#ffffff' }}>{task.title}</h3>
@@ -497,6 +569,19 @@ export default function TasksPage() {
           )
         })}
       </div>
+
+      {tasks.length === 0 && (
+        <div className="text-center py-12 rounded-xl" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+          <p style={{ color: '#a3a3a3' }}>Aucune tâche trouvée</p>
+          <button
+            onClick={openAddModal}
+            className="mt-4 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ backgroundColor: '#22c55e', color: '#ffffff' }}
+          >
+            Créer la première tâche
+          </button>
+        </div>
+      )}
 
       {/* Task Modal */}
       {showModal && (
@@ -535,7 +620,7 @@ export default function TasksPage() {
                   <label className="block text-sm mb-1" style={{ color: '#a3a3a3' }}>Catégorie</label>
                   <select
                     value={formData.category}
-                    onChange={(e) => setFormData({...formData, category: e.target.value as Task['category']})}
+                    onChange={(e) => setFormData({...formData, category: e.target.value as TaskDB['category']})}
                     className="w-full px-3 py-2 rounded-lg text-sm"
                     style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
                   >
@@ -548,7 +633,7 @@ export default function TasksPage() {
                   <label className="block text-sm mb-1" style={{ color: '#a3a3a3' }}>Assigné à</label>
                   <select
                     value={formData.assignee}
-                    onChange={(e) => setFormData({...formData, assignee: e.target.value as Task['assignee']})}
+                    onChange={(e) => setFormData({...formData, assignee: e.target.value as TaskDB['assignee']})}
                     className="w-full px-3 py-2 rounded-lg text-sm"
                     style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
                   >
@@ -563,7 +648,7 @@ export default function TasksPage() {
                   <label className="block text-sm mb-1" style={{ color: '#a3a3a3' }}>Priorité</label>
                   <select
                     value={formData.priority}
-                    onChange={(e) => setFormData({...formData, priority: e.target.value as Task['priority']})}
+                    onChange={(e) => setFormData({...formData, priority: e.target.value as TaskDB['priority']})}
                     className="w-full px-3 py-2 rounded-lg text-sm"
                     style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
                   >
@@ -589,8 +674,8 @@ export default function TasksPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formData.isVideo}
-                    onChange={(e) => setFormData({...formData, isVideo: e.target.checked})}
+                    checked={formData.is_video}
+                    onChange={(e) => setFormData({...formData, is_video: e.target.checked})}
                     className="w-4 h-4 rounded"
                   />
                   <span className="text-sm flex items-center gap-2" style={{ color: '#a3a3a3' }}>
@@ -603,8 +688,13 @@ export default function TasksPage() {
 
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="flex-1 px-4 py-2 rounded-lg text-sm" style={{ backgroundColor: '#262626', color: '#a3a3a3' }}>Annuler</button>
-              <button onClick={saveTask} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#22c55e', color: '#ffffff' }}>
-                {editingTask ? 'Modifier' : 'Ajouter'}
+              <button 
+                onClick={saveTask} 
+                disabled={isSaving}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50" 
+                style={{ backgroundColor: '#22c55e', color: '#ffffff' }}
+              >
+                {isSaving ? 'Enregistrement...' : editingTask ? 'Modifier' : 'Ajouter'}
               </button>
             </div>
           </div>
@@ -629,13 +719,9 @@ export default function TasksPage() {
                   <Calendar className="w-4 h-4" />
                   Date de début du challenge (Jour 1)
                 </label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg text-sm"
-                  style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
-                />
+                <p className="text-sm px-3 py-2 rounded-lg" style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}>
+                  {startDate}
+                </p>
                 <p className="text-xs mt-1" style={{ color: '#737373' }}>
                   Jour actuel: {currentDay} • {formatDate(getDateForDay(currentDay, startDate))}
                 </p>

@@ -4,15 +4,14 @@ import { useEffect, useState } from 'react'
 import { 
   Video, 
   CheckSquare, 
-  Users, 
-  TrendingUp,
-  ArrowUpRight,
-  Play,
   Clock,
   Zap,
-  Calendar
+  Calendar,
+  RefreshCw
 } from 'lucide-react'
-import { tasks as initialTasks, Task, CHALLENGE_START_DATE } from '@/lib/data'
+import { supabase, TaskDB } from '@/lib/supabase'
+
+const CHALLENGE_START_DATE = '2025-02-10'
 
 const getDateForDay = (day: number, startDate: string): Date => {
   const start = new Date(startDate)
@@ -59,35 +58,54 @@ const priorityColors: Record<string, string> = {
 }
 
 export default function Dashboard() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks)
-  const [startDate, setStartDate] = useState<string>(CHALLENGE_START_DATE)
-  const [isLoaded, setIsLoaded] = useState(false)
+  const [tasks, setTasks] = useState<TaskDB[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const startDate = CHALLENGE_START_DATE
+
+  // Fetch tasks from Supabase
+  const fetchTasks = async () => {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .order('day', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching tasks:', error)
+      return
+    }
+
+    setTasks(data || [])
+  }
 
   useEffect(() => {
-    const savedTasks = localStorage.getItem('sporelife-tasks')
-    const savedStartDate = localStorage.getItem('sporelife-start-date')
-    
-    if (savedTasks) {
-      try {
-        setTasks(JSON.parse(savedTasks))
-      } catch (e) {
-        console.error('Error loading tasks:', e)
-      }
+    const loadData = async () => {
+      setIsLoading(true)
+      await fetchTasks()
+      setIsLoading(false)
     }
-    
-    if (savedStartDate) {
-      setStartDate(savedStartDate)
+    loadData()
+  }, [])
+
+  // Realtime subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel('dashboard-tasks-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchTasks()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
-    
-    setIsLoaded(true)
   }, [])
 
   const currentDay = getCurrentDay(startDate)
   const currentWeek = Math.ceil(currentDay / 7)
   
   const doneCount = tasks.filter(t => t.status === 'done').length
-  const videoCount = tasks.filter(t => t.isVideo).length
-  const videoDoneCount = tasks.filter(t => t.isVideo && t.status === 'done').length
+  const videoCount = tasks.filter(t => t.is_video).length
+  const videoDoneCount = tasks.filter(t => t.is_video && t.status === 'done').length
   const chrisCount = tasks.filter(t => (t.assignee === 'chris' || t.assignee === 'both') && t.status !== 'done').length
   const lucasCount = tasks.filter(t => (t.assignee === 'lucas' || t.assignee === 'both') && t.status !== 'done').length
 
@@ -102,7 +120,7 @@ export default function Dashboard() {
   const stats = [
     {
       name: 'Progression',
-      value: `${Math.round((doneCount / tasks.length) * 100)}%`,
+      value: tasks.length > 0 ? `${Math.round((doneCount / tasks.length) * 100)}%` : '0%',
       subtext: `${doneCount}/${tasks.length} tâches`,
       icon: CheckSquare,
       color: 'text-green-500',
@@ -134,12 +152,12 @@ export default function Dashboard() {
     },
   ]
 
-  if (!isLoaded) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500 mx-auto mb-4"></div>
-          <p style={{ color: '#a3a3a3' }}>Chargement...</p>
+          <p style={{ color: '#a3a3a3' }}>Chargement depuis Supabase...</p>
         </div>
       </div>
     )
@@ -154,9 +172,19 @@ export default function Dashboard() {
       }}>
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold" style={{ color: '#ffffff' }}>
-              🍑 Boost ton Mood
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold" style={{ color: '#ffffff' }}>
+                🍑 Boost ton Mood
+              </h1>
+              <button
+                onClick={() => fetchTasks()}
+                className="p-2 rounded-lg"
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
+                title="Rafraîchir"
+              >
+                <RefreshCw className="w-4 h-4" style={{ color: '#a3a3a3' }} />
+              </button>
+            </div>
             <p style={{ color: '#a3a3a3' }} className="mt-2">
               Challenge 60 jours • Ice Tea Pêche-Mangue aux Champignons
             </p>
@@ -268,7 +296,7 @@ export default function Dashboard() {
                   <div className={`w-2 h-2 rounded-full ${task.status === 'done' ? 'bg-green-500' : 'bg-orange-500'}`} />
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium truncate ${task.status === 'done' ? 'line-through' : ''}`} style={{ color: '#ffffff' }}>
-                      {task.isVideo && '🎬 '}{task.title}
+                      {task.is_video && '🎬 '}{task.title}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs" style={{ color: '#737373' }}>
@@ -307,7 +335,7 @@ export default function Dashboard() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate" style={{ color: '#ffffff' }}>
-                    {task.isVideo && '🎬 '}{task.title}
+                    {task.is_video && '🎬 '}{task.title}
                   </p>
                   <span className="text-xs" style={{ color: '#737373' }}>
                     {assigneeEmoji[task.assignee]} {task.assignee === 'both' ? 'Chris & Lucas' : task.assignee === 'chris' ? 'Chris' : 'Lucas'}
