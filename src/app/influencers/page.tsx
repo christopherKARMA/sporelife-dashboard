@@ -1,53 +1,25 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Users, 
   Plus, 
   Search,
   Instagram,
   Youtube,
-  Filter,
   ExternalLink,
   MessageCircle,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
-  X
+  X,
+  Loader2
 } from 'lucide-react'
+import { supabase, Influencer } from '@/lib/supabase'
 
-// Type pour les influenceurs
 type InfluencerStatus = 'not_contacted' | 'contacted' | 'negotiating' | 'accepted' | 'declined'
 type Platform = 'tiktok' | 'instagram' | 'youtube'
-
-interface Influencer {
-  id: number
-  name: string
-  username: string
-  platform: Platform
-  followers: string
-  engagement?: string
-  status: InfluencerStatus
-  lastContact?: string
-  notes?: string
-  profileUrl?: string
-}
-
-// Données de démo
-const initialInfluencers: Influencer[] = [
-  {
-    id: 1,
-    name: 'Exemple Influenceur',
-    username: '@exemple',
-    platform: 'tiktok',
-    followers: '50K',
-    engagement: '5.2%',
-    status: 'not_contacted',
-    notes: 'Fait du contenu wellness/lifestyle',
-    profileUrl: 'https://tiktok.com/@exemple'
-  }
-]
 
 const statusConfig = {
   not_contacted: { 
@@ -100,14 +72,14 @@ const platformConfig = {
 }
 
 export default function InfluencersPage() {
-  const [influencers, setInfluencers] = useState<Influencer[]>(initialInfluencers)
+  const [influencers, setInfluencers] = useState<Influencer[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<InfluencerStatus | 'all'>('all')
   const [filterPlatform, setFilterPlatform] = useState<Platform | 'all'>('all')
   const [showAddModal, setShowAddModal] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
   
-  // Formulaire pour nouvel influenceur
   const [newInfluencer, setNewInfluencer] = useState({
     name: '',
     username: '',
@@ -116,8 +88,42 @@ export default function InfluencersPage() {
     engagement: '',
     status: 'not_contacted' as InfluencerStatus,
     notes: '',
-    profileUrl: ''
+    profile_url: ''
   })
+
+  // Fetch influencers from Supabase
+  useEffect(() => {
+    fetchInfluencers()
+    
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('influencers_changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'influencers' },
+        () => {
+          fetchInfluencers()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  const fetchInfluencers = async () => {
+    const { data, error } = await supabase
+      .from('influencers')
+      .select('*')
+      .order('created_at', { ascending: false })
+    
+    if (error) {
+      console.error('Error fetching influencers:', error)
+    } else {
+      setInfluencers(data || [])
+    }
+    setLoading(false)
+  }
 
   // Filtrage
   const filteredInfluencers = influencers.filter(inf => {
@@ -136,40 +142,78 @@ export default function InfluencersPage() {
     pending: influencers.filter(i => i.status === 'negotiating' || i.status === 'contacted').length,
   }
 
-  const addInfluencer = () => {
+  const addInfluencer = async () => {
     if (!newInfluencer.name || !newInfluencer.username) return
     
-    setInfluencers([
-      ...influencers,
-      {
-        ...newInfluencer,
-        id: Date.now(),
-        lastContact: newInfluencer.status !== 'not_contacted' ? new Date().toISOString().split('T')[0] : undefined
-      }
-    ])
-    setNewInfluencer({
-      name: '',
-      username: '',
-      platform: 'tiktok',
-      followers: '',
-      engagement: '',
-      status: 'not_contacted',
-      notes: '',
-      profileUrl: ''
-    })
-    setShowAddModal(false)
+    setSaving(true)
+    const { error } = await supabase
+      .from('influencers')
+      .insert({
+        name: newInfluencer.name,
+        username: newInfluencer.username,
+        platform: newInfluencer.platform,
+        followers: newInfluencer.followers,
+        engagement: newInfluencer.engagement || null,
+        status: newInfluencer.status,
+        notes: newInfluencer.notes || null,
+        profile_url: newInfluencer.profile_url || null,
+        last_contact: newInfluencer.status !== 'not_contacted' ? new Date().toISOString().split('T')[0] : null
+      })
+
+    if (error) {
+      console.error('Error adding influencer:', error)
+    } else {
+      setNewInfluencer({
+        name: '',
+        username: '',
+        platform: 'tiktok',
+        followers: '',
+        engagement: '',
+        status: 'not_contacted',
+        notes: '',
+        profile_url: ''
+      })
+      setShowAddModal(false)
+    }
+    setSaving(false)
   }
 
-  const updateStatus = (id: number, status: InfluencerStatus) => {
-    setInfluencers(influencers.map(inf => 
-      inf.id === id 
-        ? { ...inf, status, lastContact: new Date().toISOString().split('T')[0] }
-        : inf
-    ))
+  const updateStatus = async (id: string, status: InfluencerStatus) => {
+    const { error } = await supabase
+      .from('influencers')
+      .update({ 
+        status, 
+        last_contact: new Date().toISOString().split('T')[0] 
+      })
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error updating status:', error)
+    }
   }
 
-  const deleteInfluencer = (id: number) => {
-    setInfluencers(influencers.filter(inf => inf.id !== id))
+  const deleteInfluencer = async (id: string) => {
+    if (!confirm('Supprimer cet influenceur ?')) return
+    
+    const { error } = await supabase
+      .from('influencers')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting influencer:', error)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Chargement...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -309,7 +353,7 @@ export default function InfluencersPage() {
                       <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                         <span>{influencer.followers} followers</span>
                         {influencer.engagement && <span>• {influencer.engagement} engagement</span>}
-                        {influencer.lastContact && <span>• Dernier contact: {influencer.lastContact}</span>}
+                        {influencer.last_contact && <span>• Dernier contact: {influencer.last_contact}</span>}
                       </div>
                       {influencer.notes && (
                         <p className="mt-2 text-sm text-muted-foreground line-clamp-1">{influencer.notes}</p>
@@ -330,9 +374,9 @@ export default function InfluencersPage() {
                         ))}
                       </select>
                       
-                      {influencer.profileUrl && (
+                      {influencer.profile_url && (
                         <a
-                          href={influencer.profileUrl}
+                          href={influencer.profile_url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="p-2 rounded-lg bg-muted hover:bg-muted/80 transition-colors"
@@ -434,8 +478,8 @@ export default function InfluencersPage() {
                 <label className="block text-sm font-medium text-foreground mb-1">URL du profil</label>
                 <input
                   type="url"
-                  value={newInfluencer.profileUrl}
-                  onChange={(e) => setNewInfluencer({...newInfluencer, profileUrl: e.target.value})}
+                  value={newInfluencer.profile_url}
+                  onChange={(e) => setNewInfluencer({...newInfluencer, profile_url: e.target.value})}
                   placeholder="https://tiktok.com/@..."
                   className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
@@ -475,9 +519,10 @@ export default function InfluencersPage() {
               </button>
               <button
                 onClick={addInfluencer}
-                disabled={!newInfluencer.name || !newInfluencer.username}
-                className="flex-1 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!newInfluencer.name || !newInfluencer.username || saving}
+                className="flex-1 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                 Ajouter
               </button>
             </div>
