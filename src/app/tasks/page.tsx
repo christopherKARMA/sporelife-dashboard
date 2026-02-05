@@ -1,9 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Plus, 
-  CheckSquare,
   Clock,
   AlertTriangle,
   CheckCircle2,
@@ -12,9 +11,15 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
-  X
+  X,
+  Video,
+  User,
+  Users,
+  Package,
+  Calendar,
+  Settings
 } from 'lucide-react'
-import { tasks as initialTasks, Task } from '@/lib/data'
+import { tasks as initialTasks, Task, CHALLENGE_START_DATE } from '@/lib/data'
 
 const categoryConfig = {
   product: { label: 'Produit', emoji: '🧪', color: 'bg-purple-500/10 text-purple-400' },
@@ -31,6 +36,12 @@ const priorityConfig = {
   low: { label: 'Basse', color: 'text-green-400', icon: CheckCircle2 },
 }
 
+const assigneeConfig = {
+  chris: { label: 'Chris', emoji: '🎬', color: 'bg-cyan-500/10 text-cyan-400' },
+  lucas: { label: 'Lucas', emoji: '📊', color: 'bg-emerald-500/10 text-emerald-400' },
+  both: { label: 'Tous', emoji: '👥', color: 'bg-violet-500/10 text-violet-400' },
+}
+
 const groupByWeek = (tasks: Task[]) => {
   const weeks: { [key: number]: Task[] } = {}
   tasks.forEach(task => {
@@ -41,23 +52,97 @@ const groupByWeek = (tasks: Task[]) => {
   return weeks
 }
 
+const getDateForDay = (day: number, startDate: string): Date => {
+  const start = new Date(startDate)
+  const result = new Date(start)
+  result.setDate(result.getDate() + day - 1)
+  return result
+}
+
+const formatDate = (date: Date): string => {
+  return date.toLocaleDateString('fr-FR', { 
+    weekday: 'short', 
+    day: 'numeric', 
+    month: 'short' 
+  })
+}
+
+const getCurrentDay = (startDate: string): number => {
+  const start = new Date(startDate)
+  const today = new Date()
+  const diffTime = today.getTime() - start.getTime()
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  return Math.max(1, Math.min(60, diffDays))
+}
+
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks)
-  const [filterCategory, setFilterCategory] = useState<string>('all')
+  const [startDate, setStartDate] = useState<string>(CHALLENGE_START_DATE)
+  const [filterType, setFilterType] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [expandedWeeks, setExpandedWeeks] = useState<number[]>([1, 2])
+  const [expandedWeeks, setExpandedWeeks] = useState<number[]>([])
   const [showModal, setShowModal] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [isLoaded, setIsLoaded] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     category: 'product' as Task['category'],
     priority: 'medium' as Task['priority'],
+    assignee: 'chris' as Task['assignee'],
+    isVideo: false,
     day: 1
   })
 
+  // Load from localStorage
+  useEffect(() => {
+    const savedTasks = localStorage.getItem('sporelife-tasks')
+    const savedStartDate = localStorage.getItem('sporelife-start-date')
+    
+    if (savedTasks) {
+      try {
+        setTasks(JSON.parse(savedTasks))
+      } catch (e) {
+        console.error('Error loading tasks:', e)
+      }
+    }
+    
+    if (savedStartDate) {
+      setStartDate(savedStartDate)
+    }
+
+    // Auto-expand current week
+    const currentDay = getCurrentDay(savedStartDate || CHALLENGE_START_DATE)
+    const currentWeek = Math.ceil(currentDay / 7)
+    setExpandedWeeks([currentWeek, currentWeek + 1])
+    
+    setIsLoaded(true)
+  }, [])
+
+  // Save to localStorage
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('sporelife-tasks', JSON.stringify(tasks))
+    }
+  }, [tasks, isLoaded])
+
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('sporelife-start-date', startDate)
+    }
+  }, [startDate, isLoaded])
+
+  const currentDay = getCurrentDay(startDate)
+
   const filteredTasks = tasks.filter(task => {
-    if (filterCategory !== 'all' && task.category !== filterCategory) return false
+    // Filter by type
+    if (filterType === 'chris' && task.assignee !== 'chris' && task.assignee !== 'both') return false
+    if (filterType === 'lucas' && task.assignee !== 'lucas' && task.assignee !== 'both') return false
+    if (filterType === 'videos' && !task.isVideo) return false
+    if (filterType === 'product' && task.category !== 'product') return false
+    
+    // Filter by status
     if (filterStatus !== 'all' && task.status !== filterStatus) return false
     return true
   })
@@ -65,6 +150,8 @@ export default function TasksPage() {
   const weeks = groupByWeek(filteredTasks)
   const todoCount = tasks.filter(t => t.status === 'todo').length
   const doneCount = tasks.filter(t => t.status === 'done').length
+  const videoCount = tasks.filter(t => t.isVideo).length
+  const videoDoneCount = tasks.filter(t => t.isVideo && t.status === 'done').length
 
   const toggleTaskStatus = (taskId: string) => {
     setTasks(tasks.map(task => {
@@ -86,7 +173,15 @@ export default function TasksPage() {
 
   const openAddModal = () => {
     setEditingTask(null)
-    setFormData({ title: '', description: '', category: 'product', priority: 'medium', day: 1 })
+    setFormData({ 
+      title: '', 
+      description: '', 
+      category: 'content', 
+      priority: 'medium', 
+      assignee: 'chris',
+      isVideo: false,
+      day: currentDay 
+    })
     setShowModal(true)
   }
 
@@ -97,6 +192,8 @@ export default function TasksPage() {
       description: task.description || '',
       category: task.category,
       priority: task.priority,
+      assignee: task.assignee,
+      isVideo: task.isVideo || false,
       day: task.day
     })
     setShowModal(true)
@@ -129,62 +226,166 @@ export default function TasksPage() {
     }
   }
 
+  const resetProgress = () => {
+    if (confirm('Remettre toutes les tâches à zéro ?')) {
+      setTasks(tasks.map(t => ({ ...t, status: 'todo' as const })))
+    }
+  }
+
+  const weekLabels: { [key: number]: string } = {
+    1: 'Teasing & Concept',
+    2: 'Sélection Fournisseurs',
+    3: 'Formulation & Shopify',
+    4: 'Contenu Éducatif',
+    5: 'Pré-lancement',
+    6: 'Production & Expédition',
+    7: 'Lancement Public',
+    8: 'Scale & Optimisation',
+    9: 'Bilan & Suite'
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500 mx-auto mb-4"></div>
+          <p style={{ color: '#a3a3a3' }}>Chargement...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold" style={{ color: '#ffffff' }}>Plan d'action</h1>
-          <p style={{ color: '#a3a3a3' }} className="mt-1">{tasks.length} tâches sur 60 jours</p>
+          <h1 className="text-2xl lg:text-3xl font-bold" style={{ color: '#ffffff' }}>
+            🍑 Boost ton Mood
+          </h1>
+          <p style={{ color: '#a3a3a3' }} className="mt-1">
+            Jour {currentDay}/60 • {formatDate(getDateForDay(currentDay, startDate))}
+          </p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-          style={{ backgroundColor: '#22c55e', color: '#ffffff' }}
-        >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">Ajouter</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-2 rounded-lg"
+            style={{ backgroundColor: '#262626' }}
+          >
+            <Settings className="w-5 h-5" style={{ color: '#a3a3a3' }} />
+          </button>
+          <button
+            onClick={openAddModal}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ backgroundColor: '#22c55e', color: '#ffffff' }}
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Ajouter</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="rounded-xl p-4" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium" style={{ color: '#ffffff' }}>Progression globale</span>
+          <span className="text-sm" style={{ color: '#22c55e' }}>{Math.round((doneCount / tasks.length) * 100)}%</span>
+        </div>
+        <div className="w-full h-3 rounded-full overflow-hidden" style={{ backgroundColor: '#262626' }}>
+          <div 
+            className="h-full rounded-full transition-all duration-500" 
+            style={{ 
+              width: `${(doneCount / tasks.length) * 100}%`,
+              backgroundColor: '#22c55e'
+            }}
+          />
+        </div>
+        <div className="flex justify-between mt-2 text-xs" style={{ color: '#737373' }}>
+          <span>{doneCount}/{tasks.length} tâches</span>
+          <span>{videoDoneCount}/{videoCount} vidéos</span>
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-2">
         <div className="rounded-xl p-3 text-center" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
-          <p className="text-2xl font-bold" style={{ color: '#ffffff' }}>{todoCount}</p>
+          <p className="text-xl font-bold" style={{ color: '#ffffff' }}>{todoCount}</p>
           <p className="text-xs" style={{ color: '#a3a3a3' }}>À faire</p>
         </div>
         <div className="rounded-xl p-3 text-center" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
-          <p className="text-2xl font-bold" style={{ color: '#eab308' }}>{tasks.filter(t => t.status === 'in_progress').length}</p>
-          <p className="text-xs" style={{ color: '#a3a3a3' }}>En cours</p>
+          <p className="text-xl font-bold" style={{ color: '#22c55e' }}>{doneCount}</p>
+          <p className="text-xs" style={{ color: '#a3a3a3' }}>Terminées</p>
         </div>
         <div className="rounded-xl p-3 text-center" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
-          <p className="text-2xl font-bold" style={{ color: '#22c55e' }}>{doneCount}</p>
-          <p className="text-xs" style={{ color: '#a3a3a3' }}>Terminées</p>
+          <p className="text-xl font-bold" style={{ color: '#ec4899' }}>{videoCount}</p>
+          <p className="text-xs" style={{ color: '#a3a3a3' }}>Vidéos</p>
+        </div>
+        <div className="rounded-xl p-3 text-center" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+          <p className="text-xl font-bold" style={{ color: '#f97316' }}>{currentDay}</p>
+          <p className="text-xs" style={{ color: '#a3a3a3' }}>Jour</p>
         </div>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
-        <select
-          value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value)}
-          className="px-3 py-2 rounded-lg text-sm"
-          style={{ backgroundColor: '#171717', border: '1px solid #262626', color: '#ffffff' }}
+        <button
+          onClick={() => setFilterType('all')}
+          className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${
+            filterType === 'all' ? 'ring-2 ring-green-500' : ''
+          }`}
+          style={{ backgroundColor: '#171717', border: '1px solid #262626', color: filterType === 'all' ? '#22c55e' : '#a3a3a3' }}
         >
-          <option value="all">Toutes catégories</option>
-          {Object.entries(categoryConfig).map(([key, { label, emoji }]) => (
-            <option key={key} value={key}>{emoji} {label}</option>
-          ))}
-        </select>
+          <Users className="w-4 h-4" />
+          Tout
+        </button>
+        <button
+          onClick={() => setFilterType('chris')}
+          className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${
+            filterType === 'chris' ? 'ring-2 ring-cyan-500' : ''
+          }`}
+          style={{ backgroundColor: '#171717', border: '1px solid #262626', color: filterType === 'chris' ? '#06b6d4' : '#a3a3a3' }}
+        >
+          🎬 Chris
+        </button>
+        <button
+          onClick={() => setFilterType('lucas')}
+          className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${
+            filterType === 'lucas' ? 'ring-2 ring-emerald-500' : ''
+          }`}
+          style={{ backgroundColor: '#171717', border: '1px solid #262626', color: filterType === 'lucas' ? '#10b981' : '#a3a3a3' }}
+        >
+          📊 Lucas
+        </button>
+        <button
+          onClick={() => setFilterType('videos')}
+          className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${
+            filterType === 'videos' ? 'ring-2 ring-pink-500' : ''
+          }`}
+          style={{ backgroundColor: '#171717', border: '1px solid #262626', color: filterType === 'videos' ? '#ec4899' : '#a3a3a3' }}
+        >
+          <Video className="w-4 h-4" />
+          Vidéos
+        </button>
+        <button
+          onClick={() => setFilterType('product')}
+          className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${
+            filterType === 'product' ? 'ring-2 ring-purple-500' : ''
+          }`}
+          style={{ backgroundColor: '#171717', border: '1px solid #262626', color: filterType === 'product' ? '#a855f7' : '#a3a3a3' }}
+        >
+          <Package className="w-4 h-4" />
+          Produit
+        </button>
+        
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-2 rounded-lg text-sm"
+          className="px-3 py-2 rounded-lg text-sm ml-auto"
           style={{ backgroundColor: '#171717', border: '1px solid #262626', color: '#ffffff' }}
         >
           <option value="all">Tous statuts</option>
           <option value="todo">À faire</option>
-          <option value="in_progress">En cours</option>
           <option value="done">Terminé</option>
         </select>
       </div>
@@ -195,21 +396,41 @@ export default function TasksPage() {
           const week = Number(weekNum)
           const isExpanded = expandedWeeks.includes(week)
           const weekDone = weekTasks.filter(t => t.status === 'done').length
+          const weekVideos = weekTasks.filter(t => t.isVideo).length
           const startDay = (week - 1) * 7 + 1
           const endDay = Math.min(week * 7, 60)
+          const isCurrentWeek = currentDay >= startDay && currentDay <= endDay
+          const weekStartDate = formatDate(getDateForDay(startDay, startDate))
+          const weekEndDate = formatDate(getDateForDay(endDay, startDate))
           
           return (
-            <div key={week} className="rounded-xl overflow-hidden" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+            <div 
+              key={week} 
+              className={`rounded-xl overflow-hidden ${isCurrentWeek ? 'ring-2 ring-green-500/50' : ''}`} 
+              style={{ backgroundColor: '#171717', border: '1px solid #262626' }}
+            >
               <button
                 onClick={() => toggleWeek(week)}
                 className="w-full px-4 py-3 flex items-center justify-between"
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-lg font-semibold" style={{ color: '#ffffff' }}>Semaine {week}</span>
-                  <span className="text-sm" style={{ color: '#737373' }}>J{startDay}-{endDay}</span>
-                  <span className="px-2 py-0.5 rounded text-xs" style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#22c55e' }}>
-                    {weekDone}/{weekTasks.length}
-                  </span>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    {isCurrentWeek && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />}
+                    <span className="text-lg font-semibold" style={{ color: '#ffffff' }}>S{week}</span>
+                  </div>
+                  <span className="text-sm hidden sm:inline" style={{ color: '#22c55e' }}>{weekLabels[week] || ''}</span>
+                  <span className="text-xs" style={{ color: '#737373' }}>{weekStartDate} → {weekEndDate}</span>
+                  <div className="flex gap-2">
+                    <span className="px-2 py-0.5 rounded text-xs" style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#22c55e' }}>
+                      {weekDone}/{weekTasks.length}
+                    </span>
+                    {weekVideos > 0 && (
+                      <span className="px-2 py-0.5 rounded text-xs flex items-center gap-1" style={{ backgroundColor: 'rgba(236, 72, 153, 0.1)', color: '#ec4899' }}>
+                        <Video className="w-3 h-3" />
+                        {weekVideos}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {isExpanded ? <ChevronUp className="w-5 h-5" style={{ color: '#737373' }} /> : <ChevronDown className="w-5 h-5" style={{ color: '#737373' }} />}
               </button>
@@ -219,23 +440,39 @@ export default function TasksPage() {
                   {weekTasks.sort((a, b) => a.day - b.day).map((task) => {
                     const category = categoryConfig[task.category as keyof typeof categoryConfig]
                     const priority = priorityConfig[task.priority]
+                    const assignee = assigneeConfig[task.assignee]
                     const PriorityIcon = priority.icon
+                    const taskDate = formatDate(getDateForDay(task.day, startDate))
+                    const isToday = task.day === currentDay
+                    const isPast = task.day < currentDay && task.status !== 'done'
 
                     return (
-                      <div key={task.id} className={`px-4 py-3 ${task.status === 'done' ? 'opacity-60' : ''}`} style={{ borderBottom: '1px solid #262626' }}>
+                      <div 
+                        key={task.id} 
+                        className={`px-4 py-3 ${task.status === 'done' ? 'opacity-60' : ''} ${isToday ? 'bg-green-500/5' : ''} ${isPast ? 'bg-red-500/5' : ''}`} 
+                        style={{ borderBottom: '1px solid #262626' }}
+                      >
                         <div className="flex items-start gap-3">
                           <button onClick={() => toggleTaskStatus(task.id)} className="mt-0.5 flex-shrink-0">
                             {task.status === 'done' ? (
                               <CheckCircle2 className="w-5 h-5" style={{ color: '#22c55e' }} />
                             ) : (
-                              <Circle className="w-5 h-5" style={{ color: '#737373' }} />
+                              <Circle className="w-5 h-5" style={{ color: isPast ? '#ef4444' : '#737373' }} />
                             )}
                           </button>
 
                           <div className="flex-1 min-w-0">
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <span className="text-xs font-medium" style={{ color: '#737373' }}>J{task.day}</span>
+                              <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${isToday ? 'bg-green-500/20 text-green-400' : ''}`} style={{ color: isToday ? undefined : '#737373' }}>
+                                J{task.day} • {taskDate}
+                              </span>
+                              {task.isVideo && (
+                                <span className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1" style={{ backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#ec4899' }}>
+                                  <Video className="w-3 h-3" />
+                                </span>
+                              )}
                               <span className={`px-1.5 py-0.5 rounded text-xs ${category.color}`}>{category.emoji}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${assignee.color}`}>{assignee.emoji}</span>
                               <PriorityIcon className={`w-3 h-3 ${priority.color}`} />
                             </div>
                             <h3 className={`font-medium text-sm ${task.status === 'done' ? 'line-through' : ''}`} style={{ color: '#ffffff' }}>{task.title}</h3>
@@ -261,10 +498,10 @@ export default function TasksPage() {
         })}
       </div>
 
-      {/* Modal */}
+      {/* Task Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
-          <div className="w-full max-w-md rounded-xl p-6" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+          <div className="w-full max-w-md rounded-xl p-6 max-h-[90vh] overflow-y-auto" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold" style={{ color: '#ffffff' }}>{editingTask ? 'Modifier' : 'Ajouter'} une tâche</h2>
               <button onClick={() => setShowModal(false)}><X className="w-5 h-5" style={{ color: '#737373' }} /></button>
@@ -308,6 +545,21 @@ export default function TasksPage() {
                   </select>
                 </div>
                 <div>
+                  <label className="block text-sm mb-1" style={{ color: '#a3a3a3' }}>Assigné à</label>
+                  <select
+                    value={formData.assignee}
+                    onChange={(e) => setFormData({...formData, assignee: e.target.value as Task['assignee']})}
+                    className="w-full px-3 py-2 rounded-lg text-sm"
+                    style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
+                  >
+                    <option value="chris">🎬 Chris</option>
+                    <option value="lucas">📊 Lucas</option>
+                    <option value="both">👥 Les deux</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
                   <label className="block text-sm mb-1" style={{ color: '#a3a3a3' }}>Priorité</label>
                   <select
                     value={formData.priority}
@@ -320,18 +572,32 @@ export default function TasksPage() {
                     <option value="low">🟢 Basse</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm mb-1" style={{ color: '#a3a3a3' }}>Jour (1-60)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={formData.day}
+                    onChange={(e) => setFormData({...formData, day: parseInt(e.target.value) || 1})}
+                    className="w-full px-3 py-2 rounded-lg text-sm"
+                    style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-sm mb-1" style={{ color: '#a3a3a3' }}>Jour (1-60)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={formData.day}
-                  onChange={(e) => setFormData({...formData, day: parseInt(e.target.value) || 1})}
-                  className="w-full px-3 py-2 rounded-lg text-sm"
-                  style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
-                />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isVideo}
+                    onChange={(e) => setFormData({...formData, isVideo: e.target.checked})}
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm flex items-center gap-2" style={{ color: '#a3a3a3' }}>
+                    <Video className="w-4 h-4" style={{ color: '#ec4899' }} />
+                    C'est une vidéo à tourner
+                  </span>
+                </label>
               </div>
             </div>
 
@@ -339,6 +605,57 @@ export default function TasksPage() {
               <button onClick={() => setShowModal(false)} className="flex-1 px-4 py-2 rounded-lg text-sm" style={{ backgroundColor: '#262626', color: '#a3a3a3' }}>Annuler</button>
               <button onClick={saveTask} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#22c55e', color: '#ffffff' }}>
                 {editingTask ? 'Modifier' : 'Ajouter'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
+          <div className="w-full max-w-md rounded-xl p-6" style={{ backgroundColor: '#171717', border: '1px solid #262626' }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: '#ffffff' }}>
+                <Settings className="w-5 h-5" />
+                Paramètres
+              </h2>
+              <button onClick={() => setShowSettings(false)}><X className="w-5 h-5" style={{ color: '#737373' }} /></button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm mb-1 flex items-center gap-2" style={{ color: '#a3a3a3' }}>
+                  <Calendar className="w-4 h-4" />
+                  Date de début du challenge (Jour 1)
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ backgroundColor: '#0a0a0a', border: '1px solid #262626', color: '#ffffff' }}
+                />
+                <p className="text-xs mt-1" style={{ color: '#737373' }}>
+                  Jour actuel: {currentDay} • {formatDate(getDateForDay(currentDay, startDate))}
+                </p>
+              </div>
+
+              <div className="pt-4" style={{ borderTop: '1px solid #262626' }}>
+                <button
+                  onClick={resetProgress}
+                  className="w-full px-4 py-2 rounded-lg text-sm flex items-center justify-center gap-2"
+                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Remettre la progression à zéro
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowSettings(false)} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: '#22c55e', color: '#ffffff' }}>
+                Fermer
               </button>
             </div>
           </div>
