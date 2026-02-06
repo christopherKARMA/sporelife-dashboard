@@ -79,10 +79,13 @@ export interface Influencer {
   platform: 'tiktok' | 'instagram' | 'youtube'
   followers: string
   engagement: string | null
-  status: 'not_contacted' | 'contacted' | 'negotiating' | 'accepted' | 'declined'
+  status: 'to_contact' | 'contacted' | 'negotiating' | 'accepted' | 'shipped' | 'content_received' | 'declined'
   last_contact: string | null
   notes: string | null
   profile_url: string | null
+  niche: string | null
+  email: string | null
+  address: string | null
   created_at: string
   updated_at: string
 }

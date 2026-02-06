@@ -141,7 +141,10 @@ export default function InfluencersPage() {
     engagement: '',
     status: 'to_contact' as InfluencerStatus,
     notes: '',
-    profile_url: ''
+    profile_url: '',
+    niche: '',
+    email: '',
+    address: ''
   })
 
   useEffect(() => {
@@ -658,17 +661,52 @@ export default function InfluencersPage() {
                 </div>
               </div>
               
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Statut initial</label>
+                  <select
+                    value={newInfluencer.status}
+                    onChange={(e) => setNewInfluencer({...newInfluencer, status: e.target.value as InfluencerStatus})}
+                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground"
+                  >
+                    {Object.entries(statusConfig).map(([key, config]) => (
+                      <option key={key} value={key}>{config.label}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Niche</label>
+                  <input
+                    type="text"
+                    value={newInfluencer.niche}
+                    onChange={(e) => setNewInfluencer({...newInfluencer, niche: e.target.value})}
+                    placeholder="Fitness, Bien-être..."
+                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground"
+                  />
+                </div>
+              </div>
+              
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Statut initial</label>
-                <select
-                  value={newInfluencer.status}
-                  onChange={(e) => setNewInfluencer({...newInfluencer, status: e.target.value as InfluencerStatus})}
+                <label className="block text-sm font-medium text-foreground mb-1">Email</label>
+                <input
+                  type="email"
+                  value={newInfluencer.email}
+                  onChange={(e) => setNewInfluencer({...newInfluencer, email: e.target.value})}
+                  placeholder="contact@email.com"
                   className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground"
-                >
-                  {Object.entries(statusConfig).map(([key, config]) => (
-                    <option key={key} value={key}>{config.label}</option>
-                  ))}
-                </select>
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Adresse (livraison)</label>
+                <textarea
+                  value={newInfluencer.address}
+                  onChange={(e) => setNewInfluencer({...newInfluencer, address: e.target.value})}
+                  placeholder="Nom, rue, code postal, ville..."
+                  rows={2}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground resize-none"
+                />
               </div>
               
               <div>
@@ -676,8 +714,8 @@ export default function InfluencersPage() {
                 <textarea
                   value={newInfluencer.notes}
                   onChange={(e) => setNewInfluencer({...newInfluencer, notes: e.target.value})}
-                  placeholder="Produits à envoyer, adresse, remarques..."
-                  rows={3}
+                  placeholder="Produits à envoyer, remarques..."
+                  rows={2}
                   className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground resize-none"
                 />
               </div>
@@ -764,12 +802,56 @@ export default function InfluencersPage() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Statut</label>
+                  <select
+                    value={editData.status || 'to_contact'}
+                    onChange={(e) => setEditData({...editData, status: e.target.value})}
+                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground"
+                  >
+                    {Object.entries(statusConfig).map(([key, config]) => (
+                      <option key={key} value={key}>{config.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Niche</label>
+                  <input
+                    type="text"
+                    value={editData.niche || ''}
+                    onChange={(e) => setEditData({...editData, niche: e.target.value})}
+                    placeholder="Fitness, Bien-être..."
+                    className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editData.email || ''}
+                  onChange={(e) => setEditData({...editData, email: e.target.value})}
+                  placeholder="contact@email.com"
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Adresse (livraison)</label>
+                <textarea
+                  value={editData.address || ''}
+                  onChange={(e) => setEditData({...editData, address: e.target.value})}
+                  placeholder="Nom, rue, code postal, ville..."
+                  rows={2}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground resize-none"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">Notes</label>
                 <textarea
                   value={editData.notes || ''}
                   onChange={(e) => setEditData({...editData, notes: e.target.value})}
-                  rows={4}
+                  rows={2}
                   className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground resize-none"
                 />
               </div>
