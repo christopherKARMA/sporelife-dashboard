@@ -118,3 +118,17 @@ export interface SupplierDB {
   created_at: string
   updated_at: string
 }
+
+export interface FebTaskDB {
+  id: string
+  title: string
+  description: string | null
+  category: 'site' | 'seo' | 'amazon' | 'fournisseur' | 'distribution' | 'admin' | 'contenu'
+  priority: 'high' | 'medium' | 'low'
+  assignee: 'chris' | 'lucas' | 'both'
+  status: 'todo' | 'in_progress' | 'done'
+  week: number
+  deadline: string | null
+  created_at: string
+  updated_at: string
+}

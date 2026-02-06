@@ -14,13 +14,15 @@ import {
   Leaf,
   Menu,
   X,
-  Users
+  Users,
+  Target
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Plan Février', href: '/plan-fevrier', icon: Target },
   { name: 'Vidéos', href: '/videos', icon: Video },
-  { name: 'Plan d\'action', href: '/tasks', icon: CheckSquare },
+  { name: 'Plan 60 jours', href: '/tasks', icon: CheckSquare },
   { name: 'Influenceurs', href: '/influencers', icon: Users },
   { name: 'Fournisseurs', href: '/suppliers', icon: Truck },
   { name: 'Stats', href: '/stats', icon: BarChart3 },
