@@ -214,7 +214,8 @@ export default function InfluencersPage() {
     if (!error) {
       setNewInfluencer({
         name: '', username: '', platform: 'tiktok', followers: '', 
-        engagement: '', status: 'to_contact', notes: '', profile_url: ''
+        engagement: '', status: 'to_contact', notes: '', profile_url: '',
+        niche: '', email: '', address: ''
       })
       setShowAddModal(false)
     }
@@ -807,7 +808,7 @@ export default function InfluencersPage() {
                   <label className="block text-sm font-medium text-foreground mb-1">Statut</label>
                   <select
                     value={editData.status || 'to_contact'}
-                    onChange={(e) => setEditData({...editData, status: e.target.value})}
+                    onChange={(e) => setEditData({...editData, status: e.target.value as InfluencerStatus})}
                     className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground"
                   >
                     {Object.entries(statusConfig).map(([key, config]) => (
